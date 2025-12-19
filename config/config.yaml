@@ -1,0 +1,70 @@
+# LinkedIn Automation Bot Configuration
+# For educational and technical evaluation purposes only
+
+credentials:
+  # These can be overridden via environment variables:
+  # LINKEDIN_BOT_EMAIL and LINKEDIN_BOT_PASSWORD
+  email: "" # Set your LinkedIn email here or via env var
+  password: "" # Set your LinkedIn password here or via env var
+
+stealth:
+  # Typing behavior
+  typing_speed_min: 40  # Minimum words per minute
+  typing_speed_max: 80  # Maximum words per minute
+  typo_probability: 0.02  # Probability of typo (0.0-1.0), 0.02 = 1 in 50 chars
+  
+  # Mouse movement behavior
+  mouse_speed_min: 0.5   # Minimum mouse speed multiplier
+  mouse_speed_max: 1.5   # Maximum mouse speed multiplier
+  overshoot_chance: 0.3  # Chance of mouse overshooting target (0.0-1.0)
+  
+  # Scrolling behavior
+  scroll_chunk_min: 50   # Minimum scroll chunk size in pixels
+  scroll_chunk_max: 200  # Maximum scroll chunk size in pixels
+  
+  # Timing behavior
+  base_delay_min: 0.1    # Minimum base delay in seconds
+  base_delay_max: 0.5    # Maximum base delay in seconds
+  
+  # Viewport randomization
+  viewport_width_min: 1920   # Minimum viewport width
+  viewport_width_max: 1920   # Maximum viewport width
+  viewport_height_min: 1080  # Minimum viewport height
+  viewport_height_max: 1080  # Maximum viewport height
+
+limits:
+  max_actions_per_day: 50      # Maximum actions (connections) per day
+  working_hours_start: "09:00" # Start of working hours (24h format)
+  working_hours_end: "17:00"   # End of working hours (24h format)
+  connect_cooldown_min: 3      # Minimum cooldown between connections (minutes)
+  connect_cooldown_max: 8      # Maximum cooldown between connections (minutes)
+
+selectors:
+  # Login page selectors
+  login_email_input: "#username"
+  login_password_input: "#password"
+  login_submit_button: "button[type='submit']"
+  
+  # Search page selectors
+  search_input: "input[placeholder*='Search']"
+  search_results: ".reusable-search__result-container"
+  
+  # Profile/Connection selectors
+  profile_connect_button: "button[aria-label*='Connect']"
+  connect_note_textarea: "textarea[name='message']"
+  connect_send_button: "button[aria-label*='Send']"
+  
+  # 2FA selector
+  two_factor_challenge: "input[type='text'][name='pin']"
+
+linkedin:
+  base_url: "https://www.linkedin.com"
+  login_url: "https://www.linkedin.com/login"
+  search_url: "https://www.linkedin.com/search/results/people/"
+
+database:
+  path: "data/bot.db"
+
+session:
+  cookies_path: "data/cookies.json"
+
