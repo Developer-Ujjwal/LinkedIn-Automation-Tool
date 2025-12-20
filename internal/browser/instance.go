@@ -27,6 +27,8 @@ type Instance struct {
 	stealth *stealth.Stealth
 	config  *core.Config
 	logger  *zap.Logger
+	mouseX  float64
+	mouseY  float64
 }
 
 // NewInstance creates a new browser instance
@@ -81,6 +83,10 @@ func (b *Instance) Initialize(ctx context.Context) error {
 
 	// Set viewport using WindowSize
 	b.page.MustSetViewport(width, height, 0, false)
+
+	// Initialize mouse position to center of viewport
+	b.mouseX = float64(width) / 2
+	b.mouseY = float64(height) / 2
 
 	// Inject script to hide webdriver property
 	_, err = b.page.Eval(`() => {
@@ -243,9 +249,15 @@ func (b *Instance) HumanClick(ctx context.Context, selector string) error {
 	centerX := box.X
 	centerY := box.Y
 
-	// Get current mouse position (approximate - start from viewport center)
-	startX := float64(b.config.Stealth.ViewportWidthMin) / 2
-	startY := float64(b.config.Stealth.ViewportHeightMin) / 2
+	// Get current mouse position from state
+	startX := b.mouseX
+	startY := b.mouseY
+
+	// If mouse position is 0,0 (uninitialized), start from center
+	if startX == 0 && startY == 0 {
+		startX = float64(b.config.Stealth.ViewportWidthMin) / 2
+		startY = float64(b.config.Stealth.ViewportHeightMin) / 2
+	}
 
 	// Get mouse path from stealth engine
 	points := b.stealth.GetMousePath(startX, startY, centerX, centerY)
@@ -288,12 +300,41 @@ func (b *Instance) HumanClick(ctx context.Context, selector string) error {
 		time.Sleep(delay)
 	}
 
+	// Update mouse position state
+	b.mouseX = centerX
+	b.mouseY = centerY
+
 	// Small delay before actual click
 	b.stealth.RandomSleep(ctx, 0.1, 0.2)
 
 	// Perform click
-	if err := elem.Click(proto.InputMouseButtonLeft, 1); err != nil {
-		return fmt.Errorf("failed to click element: %w", err)
+	// We use CDP for the click as well to ensure it's trusted
+	// elem.Click() uses CDP under the hood but we want to be explicit about the sequence
+	// MouseDown -> MouseUp
+	
+	err = proto.InputDispatchMouseEvent{
+		Type:       proto.InputDispatchMouseEventTypeMousePressed,
+		X:          centerX,
+		Y:          centerY,
+		Button:     proto.InputMouseButtonLeft,
+		ClickCount: 1,
+	}.Call(b.page)
+	if err != nil {
+		return fmt.Errorf("failed to mouse down: %w", err)
+	}
+
+	// Random delay between down and up (human click duration)
+	time.Sleep(time.Duration(rand.Intn(50)+50) * time.Millisecond)
+
+	err = proto.InputDispatchMouseEvent{
+		Type:       proto.InputDispatchMouseEventTypeMouseReleased,
+		X:          centerX,
+		Y:          centerY,
+		Button:     proto.InputMouseButtonLeft,
+		ClickCount: 1,
+	}.Call(b.page)
+	if err != nil {
+		return fmt.Errorf("failed to mouse up: %w", err)
 	}
 
 	return nil
@@ -325,8 +366,8 @@ func (b *Instance) HumanScroll(ctx context.Context, direction string, distance i
 			// and works even if the page overrides window.scrollBy
 			err := proto.InputDispatchMouseEvent{
 				Type:   proto.InputDispatchMouseEventTypeMouseWheel,
-				X:      100, // Arbitrary point inside viewport
-				Y:      100,
+				X:      b.mouseX,
+				Y:      b.mouseY,
 				DeltaX: 0,
 				DeltaY: float64(action.Distance),
 			}.Call(b.page)
@@ -404,6 +445,37 @@ func (b *Instance) GetAttribute(ctx context.Context, selector string, attr strin
 	}
 
 	return *value, nil
+}
+
+// GetAttributes gets an attribute value from all elements matching the selector
+func (b *Instance) GetAttributes(ctx context.Context, selector string, attr string) ([]string, error) {
+	if b.page == nil {
+		return nil, fmt.Errorf("browser not initialized")
+	}
+
+	// Use Elements to get all matching elements
+	// We use a small timeout to wait for at least one element, but we don't want to wait too long
+	// if we are just scraping what's there.
+	// However, rod.Page.Elements doesn't wait. It just returns what's there.
+	// If we want to wait, we should use WaitElements or similar, but Elements is fine if we already waited for the container.
+	
+	elems, err := b.page.Elements(selector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get elements: %w", err)
+	}
+
+	values := make([]string, 0, len(elems))
+	for _, elem := range elems {
+		val, err := elem.Attribute(attr)
+		if err != nil {
+			continue // Skip if attribute retrieval fails
+		}
+		if val != nil {
+			values = append(values, *val)
+		}
+	}
+
+	return values, nil
 }
 
 // ElementExists checks if an element exists on the page

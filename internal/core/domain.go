@@ -2,6 +2,15 @@ package core
 
 import "time"
 
+// Profile Status Constants
+const (
+	ProfileStatusDiscovered = "Discovered"
+	ProfileStatusScanned    = "Scanned"
+	ProfileStatusConnected  = "Connected"
+	ProfileStatusIgnored    = "Ignored"
+	ProfileStatusFailed     = "Failed"
+)
+
 // Profile represents a LinkedIn profile in the database
 type Profile struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
@@ -79,6 +88,9 @@ type SelectorsConfig struct {
 	SearchInput        string `mapstructure:"search_input"`
 	SearchResults      string `mapstructure:"search_results"`
 	ProfileConnectBtn  string `mapstructure:"profile_connect_button"`
+	ProfileMoreButton  string `mapstructure:"profile_more_button"`
+	ProfileMoreConnectOption string `mapstructure:"profile_more_connect_option"`
+	ConnectModalAddNoteButton string `mapstructure:"connect_modal_add_note_button"`
 	ConnectNoteTextarea string `mapstructure:"connect_note_textarea"`
 	ConnectSendButton  string `mapstructure:"connect_send_button"`
 	TwoFactorChallenge string `mapstructure:"two_factor_challenge"`
@@ -106,6 +118,10 @@ type Config struct {
 		Path string `mapstructure:"path"`
 	} `mapstructure:"database"`
 	
+	Connection struct {
+		NoteTemplate string `mapstructure:"note_template"`
+	} `mapstructure:"connection"`
+
 	Session struct {
 		CookiesPath string `mapstructure:"cookies_path"`
 	} `mapstructure:"session"`

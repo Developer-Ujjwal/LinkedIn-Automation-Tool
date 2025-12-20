@@ -30,6 +30,9 @@ type BrowserPort interface {
 	
 	// GetAttribute gets an attribute value from an element
 	GetAttribute(ctx context.Context, selector string, attr string) (string, error)
+
+	// GetAttributes gets an attribute value from all elements matching the selector
+	GetAttributes(ctx context.Context, selector string, attr string) ([]string, error)
 	
 	// ElementExists checks if an element exists on the page
 	ElementExists(ctx context.Context, selector string) (bool, error)

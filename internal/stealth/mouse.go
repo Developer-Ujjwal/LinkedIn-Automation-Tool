@@ -90,6 +90,9 @@ func (m *Mouse) generateBezierPoints(controlPoints []Point, steps int) []Point {
 	for i := 0; i < steps; i++ {
 		t := float64(i) / float64(steps-1)
 		
+		// Apply easing for human-like acceleration/deceleration
+		t = m.easeInOutCubic(t)
+
 		// Cubic Bézier formula: B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
 		mt := 1 - t
 		mt2 := mt * mt

@@ -47,15 +47,23 @@ selectors:
   
   # Search page selectors
   search_input: "input[placeholder*='Search']"
-  search_results: ".reusable-search__result-container"
+  # Updated to target the actual result items using the data-view-name attribute found in debug dump
+  search_results: "div[data-view-name='search-entity-result-universal-template']"
   
   # Profile/Connection selectors
-  profile_connect_button: "button[aria-label*='Connect']"
+  # Updated based on debug HTML: Target primary button, exclude sticky header
+  profile_connect_button: "button.artdeco-button--primary[aria-label*='Invite'][aria-label*='connect']:not(.pvs-sticky-header-profile-actions__action)"
+  profile_more_button: "button[aria-label*='More actions']:not(.pvs-sticky-header-profile-actions__action)"
+  profile_more_connect_option: "div[role='button'][aria-label*='Connect'], div[role='button'][aria-label*='Invite'][aria-label*='connect']"
+  connect_modal_add_note_button: "button[aria-label*='Add a note']"
   connect_note_textarea: "textarea[name='message']"
   connect_send_button: "button[aria-label*='Send']"
   
   # 2FA selector
   two_factor_challenge: "input[type='text'][name='pin']"
+  
+  # Feed selector (indicator of being logged in)
+  feed_container: ".scaffold-layout__main"
 
 linkedin:
   base_url: "https://www.linkedin.com"
@@ -64,6 +72,9 @@ linkedin:
 
 database:
   path: "data/bot.db"
+
+connection:
+  note_template: "Hi {{Name}}, I noticed we work in the same industry and would love to connect!"
 
 session:
   cookies_path: "data/cookies.json"
