@@ -4,7 +4,6 @@
 *.dll
 *.so
 *.dylib
-bot
 linkedin-automation
 
 # Test binary, built with `go test -c`
@@ -24,7 +23,6 @@ config.yaml.local
 *.env.local
 
 # Data directory (contains cookies and database)
-data/
 *.db
 *.db-shm
 *.db-wal
