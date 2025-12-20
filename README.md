@@ -11,6 +11,7 @@ A CLI-based automation tool built in Go using `go-rod/rod` that demonstrates:
 - Humanized interactions (Bézier mouse movements, variable typing speeds)
 - Session persistence and rate limiting
 - Clean architecture with dependency injection
+- **Full Workflow**: Search -> Connect -> Detect Acceptance -> Send Follow-up Message
 
 ## Architecture
 
@@ -20,12 +21,12 @@ A CLI-based automation tool built in Go using `go-rod/rod` that demonstrates:
 ├── config/                  # Configuration (Viper)
 ├── internal/
 │   ├── core/               # Domain types & Interfaces
-│   ├── browser/            # Rod wrapper
-│   ├── stealth/            # Humanizer engine
+│   ├── browser/            # Rod wrapper (CDP-based stealth)
+│   ├── stealth/            # Humanizer engine (Mouse, Keyboard, Jitter)
 │   ├── repository/         # SQLite implementation
-│   └── workflows/          # Business Logic (Auth, Search, Connect)
+│   └── workflows/          # Business Logic (Auth, Search, Connect, Messaging)
 ├── pkg/utils/              # Helpers (Working hours, cooldowns)
-└── data/                   # Cookies & database
+└── data/                   # Cookies, database, & debug dumps
 ```
 
 ## Setup
@@ -48,8 +49,10 @@ go build -o bot.exe cmd/bot/main.go
 
 ## Usage
 
+### 1. Search & Connect
+Search for profiles and send connection requests.
 ```bash
-# Basic usage (required: -keyword)
+# Basic usage
 ./bot.exe -keyword "software engineer"
 
 # With custom note and max results
@@ -57,40 +60,57 @@ go build -o bot.exe cmd/bot/main.go
 
 # With location filter
 ./bot.exe -keyword "developer" -location "New York" -max 15
+```
 
-# Custom config file
-./bot.exe -config custom-config.yaml -keyword "designer"
+### 2. Manage Connections & Follow-ups
+Detect who accepted your requests and send them a welcome message.
+```bash
+# Step 1: Scan for new connections (updates DB status from 'RequestSent' to 'Connected')
+./bot.exe -scan
+
+# Step 2: Send follow-up messages to new connections (limit 5 per run)
+./bot.exe -followup
+
+# Combined workflow: Scan, Follow-up, then Search & Connect
+./bot.exe -scan -followup -keyword "product manager"
 ```
 
 ### Command Line Flags
 
 - `-config`: Path to config file (default: `config/config.yaml`)
-- `-keyword`: Search keyword (required)
+- `-keyword`: Search keyword (required for search mode)
 - `-max`: Maximum profiles to connect with (default: 10)
 - `-location`: Location filter (optional)
-- `-note`: Connection note template with `{{Name}}` placeholder (default: "Hi {{Name}}, I'd like to connect with you.")
+- `-note`: Connection note template with `{{Name}}` placeholder
+- `-scan`: Scan "My Network" for new connections
+- `-followup`: Send follow-up messages to pending connections
 
 ## Features
 
-### Stealth & Humanization
-- **Bézier Curve Mouse Movements**: Natural mouse paths with overshoot correction
-- **Humanized Typing**: Variable WPM, typos with auto-correction
-- **Randomized Timing**: Never exact integer delays
-- **Human Scrolling**: Acceleration/deceleration with pauses
+### 🤖 Stealth & Humanization
+- **Advanced Mouse Engine**: Physics-based Bézier curves with acceleration/deceleration (Fitts's Law).
+- **CDP Input Events**: Uses Chrome DevTools Protocol for "trusted" input events (bypasses JS detection).
+- **Humanized Typing**: Variable WPM, typos with auto-correction, and natural delays.
+- **Randomized Timing**: Jitter added to all actions; never sleeps for exact integers.
 
-### Automation Features
-- **Session Persistence**: Cookie-based authentication
-- **2FA Support**: Manual intervention handling
-- **Rate Limiting**: Daily action limits with database tracking
-- **Working Hours**: Configurable time windows
-- **Cooldowns**: Random delays between connections (3-8 minutes)
-- **Duplicate Prevention**: Database tracking of processed profiles
+### 🔄 Automation Workflows
+- **Smart Connection**: 
+  - Detects "Connect" vs "Message" buttons.
+  - Handles "More" dropdowns and "Add a note" modals.
+  - Auto-dumps HTML on failure for debugging.
+- **Connection Tracking**: 
+  - Scans "Recently Added" to detect accepted requests.
+  - Updates local database state automatically.
+- **Follow-up System**: 
+  - Sends personalized welcome messages to new connections.
+  - Prevents duplicate messages via database tracking.
 
-### Architecture
-- **Clean Architecture**: Separation of concerns with interfaces
-- **Dependency Injection**: Testable, modular design
-- **Structured Logging**: Zap logger for debugging
-- **Error Handling**: Graceful degradation
+### 🛡️ Safety & Limits
+- **Session Persistence**: Cookie-based authentication (avoids repeated logins).
+- **Rate Limiting**: Daily action limits (Connects/Messages) tracked in SQLite.
+- **Working Hours**: Configurable time windows (e.g., 9 AM - 5 PM).
+- **Cooldowns**: Random delays between actions (2-8 minutes).
+- **Duplicate Prevention**: Database tracking of processed profiles.
 
 ## Configuration
 
@@ -98,6 +118,7 @@ Edit `config/config.yaml` to customize:
 - Stealth parameters (typing speed, mouse behavior, scrolling)
 - Rate limits and working hours
 - CSS selectors (for LinkedIn UI changes)
+- Message templates
 - Database and session paths
 
 ## Data Storage

@@ -109,6 +109,11 @@ func (b *Instance) Initialize(ctx context.Context) error {
 	return nil
 }
 
+// RandomSleep sleeps for a randomized duration
+func (b *Instance) RandomSleep(ctx context.Context, minSeconds, maxSeconds float64) {
+	b.stealth.RandomSleep(ctx, minSeconds, maxSeconds)
+}
+
 // Navigate navigates to a URL with human-like delays
 func (b *Instance) Navigate(ctx context.Context, url string) error {
 	if b.page == nil {

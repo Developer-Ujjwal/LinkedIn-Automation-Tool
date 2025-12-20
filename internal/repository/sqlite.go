@@ -4,10 +4,11 @@ import (
 	"context"
 	"time"
 
+	"linkedin-automation/internal/core"
+
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-	"linkedin-automation/internal/core"
 )
 
 // SQLiteRepository implements RepositoryPort using SQLite via GORM
@@ -104,6 +105,67 @@ func (r *SQLiteRepository) GetProfilesByStatus(ctx context.Context, status strin
 	}
 
 	return profiles, nil
+}
+
+// GetPendingFollowups returns profiles that are connected but haven't received a message
+func (r *SQLiteRepository) GetPendingFollowups(ctx context.Context, limit int) ([]*core.Profile, error) {
+	var profiles []*core.Profile
+	result := r.db.WithContext(ctx).
+		Where("status = ? AND last_message_sent_at IS NULL", core.ProfileStatusConnected).
+		Limit(limit).
+		Find(&profiles)
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	return profiles, nil
+}
+
+// MarkAsConnected updates a profile status to Connected
+func (r *SQLiteRepository) MarkAsConnected(ctx context.Context, linkedinURL string) error {
+	now := time.Now()
+	result := r.db.WithContext(ctx).
+		Model(&core.Profile{}).
+		Where("linked_in_url = ?", linkedinURL).
+		Updates(map[string]interface{}{
+			"status":       core.ProfileStatusConnected,
+			"connected_at": &now,
+			"updated_at":   now,
+		})
+
+	return result.Error
+}
+
+// LogMessageSent updates the profile status and logs the message in history
+func (r *SQLiteRepository) LogMessageSent(ctx context.Context, profileID uint, content string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
+		
+		// Update profile
+		if err := tx.WithContext(ctx).Model(&core.Profile{}).
+			Where("id = ?", profileID).
+			Updates(map[string]interface{}{
+				"status":               core.ProfileStatusMessageSent,
+				"last_message_sent_at": &now,
+				"updated_at":           now,
+			}).Error; err != nil {
+			return err
+		}
+
+		// Create history entry
+		history := &core.History{
+			ActionType: "Message",
+			Details:    content,
+			Timestamp:  now,
+		}
+		
+		if err := tx.WithContext(ctx).Create(history).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
 }
 
 // CreateHistory creates a new history record

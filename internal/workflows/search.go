@@ -65,7 +65,7 @@ func (s *SearchWorkflow) Search(ctx context.Context, params *core.SearchParams) 
 
 	for len(allProfileURLs) < params.MaxResults {
 		// Wait for search results to load
-		time.Sleep(2 * time.Second)
+		s.browser.RandomSleep(ctx, 2.0, 4.0)
 
 		// Scroll down to load more results
 		// Scroll multiple times to ensure all lazy-loaded elements appear
@@ -73,7 +73,7 @@ func (s *SearchWorkflow) Search(ctx context.Context, params *core.SearchParams) 
 			if err := s.browser.HumanScroll(ctx, "down", 800); err != nil {
 				s.logger.Warn("Failed to scroll", zap.Error(err))
 			}
-			time.Sleep(1 * time.Second)
+			s.browser.RandomSleep(ctx, 1.0, 2.0)
 		}
 
 		// Extract profile URLs from current page
@@ -374,7 +374,7 @@ func (s *SearchWorkflow) handleSecurityChallenge(ctx context.Context) error {
 				if !stillHasChallenge {
 					s.logger.Info("Security challenge appears to be resolved. Resuming workflow...")
 					// Give it a moment to fully load the target page
-					time.Sleep(3 * time.Second)
+					s.browser.RandomSleep(ctx, 3.0, 5.0)
 					return nil
 				}
 			}

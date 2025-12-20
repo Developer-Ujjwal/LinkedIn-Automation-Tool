@@ -97,6 +97,10 @@ func setDefaults() {
 	viper.SetDefault("linkedin.login_url", "https://www.linkedin.com/login")
 	viper.SetDefault("linkedin.search_url", "https://www.linkedin.com/search/results/people/")
 
+	// Messaging defaults
+	viper.SetDefault("messaging.follow_up_template", "Hi {{FirstName}}, thanks for connecting! I'd love to keep in touch.")
+	viper.SetDefault("messaging.batch_limit", 5)
+
 	// Database
 	viper.SetDefault("database.path", "data/bot.db")
 

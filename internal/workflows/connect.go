@@ -61,7 +61,7 @@ func (c *ConnectWorkflow) SendConnectionRequest(ctx context.Context, params *cor
 	}
 
 	// Wait for profile page to load
-	time.Sleep(2 * time.Second)
+	c.browser.RandomSleep(ctx, 2.0, 4.0)
 
 	// Extract profile name if not provided
 	if params.Name == "" {
@@ -91,14 +91,6 @@ func (c *ConnectWorkflow) SendConnectionRequest(ctx context.Context, params *cor
 		c.logger.Warn("Failed to scroll", zap.Error(err))
 	}
 
-	// DEBUG: Dump HTML to analyze selectors
-	if html, errHtml := c.browser.GetPageHTML(ctx); errHtml == nil {
-		dumpPath := fmt.Sprintf("data/debug_profile_%d.html", time.Now().Unix())
-		if errWrite := os.WriteFile(dumpPath, []byte(html), 0644); errWrite == nil {
-			c.logger.Info("DEBUG: Dumped profile page HTML", zap.String("path", dumpPath))
-		}
-	}
-
 	// Try to find Connect button directly
 	connectBtnFound := false
 	
@@ -112,7 +104,6 @@ func (c *ConnectWorkflow) SendConnectionRequest(ctx context.Context, params *cor
 
 	// If configured selector failed, try fallback selectors including the one found by user
 	if !connectBtnFound {
-		// Scope selectors to the main profile card to avoid clicking buttons in "People also viewed"
 		// .pv-top-card is the standard class for the top section
 		// .scaffold-layout__main is the main column
 		// We also exclude the sticky header (.pvs-sticky-header...) to avoid clicking moving elements
@@ -160,7 +151,7 @@ func (c *ConnectWorkflow) SendConnectionRequest(ctx context.Context, params *cor
 
 		if existsMore, _ := c.browser.ElementExists(ctx, moreSelector); existsMore {
 			if err := c.browser.HumanClick(ctx, moreSelector); err == nil {
-				time.Sleep(1 * time.Second)
+				c.browser.RandomSleep(ctx, 1.0, 2.0)
 				
 				// Check for Connect button again in the dropdown
 				targetSelector := c.config.Selectors.ProfileMoreConnectOption
@@ -193,7 +184,7 @@ func (c *ConnectWorkflow) SendConnectionRequest(ctx context.Context, params *cor
 	}
 
 	// Wait for connection modal/dialog to appear
-	time.Sleep(2 * time.Second)
+	c.browser.RandomSleep(ctx, 2.0, 3.0)
 
 	// Handle Note
 	if params.Note != "" {
@@ -208,24 +199,64 @@ func (c *ConnectWorkflow) SendConnectionRequest(ctx context.Context, params *cor
 			if err := c.browser.HumanClick(ctx, addNoteSelector); err != nil {
 				c.logger.Warn("Failed to click 'Add a note'", zap.Error(err))
 			} else {
-				time.Sleep(1 * time.Second)
+				c.browser.RandomSleep(ctx, 1.0, 2.0)
 				
-				// Personalize note with name
-				personalizedNote := strings.ReplaceAll(params.Note, "{{Name}}", params.Name)
-				
-				// Enforce character limit (300 chars)
-				if len(personalizedNote) > 300 {
-					c.logger.Warn("Note exceeds 300 characters, truncating", zap.Int("length", len(personalizedNote)))
-					personalizedNote = personalizedNote[:297] + "..."
+				// Check if textarea appeared (it might not if monthly limit is reached)
+				textareaSelector := c.config.Selectors.ConnectNoteTextarea
+				if textareaSelector == "" {
+					textareaSelector = "textarea[name='message']"
 				}
 
-				// Type note with human-like behavior
-				if err := c.browser.HumanType(ctx, c.config.Selectors.ConnectNoteTextarea, personalizedNote); err != nil {
-					c.logger.Warn("Failed to type note", zap.Error(err))
+				textareaExists, err := c.browser.ElementExists(ctx, textareaSelector)
+				if err != nil {
+					c.logger.Warn("Failed to check for note textarea", zap.Error(err))
 				}
-				
-				// Small delay before sending
-				time.Sleep(1 * time.Second)
+
+				if !textareaExists {
+					c.logger.Warn("Note textarea not found after clicking 'Add a note'. Monthly limit for personalized invites might be reached. Sending without note.")
+					
+					// Check for potential "Got it" or dismissal button if a limit modal appeared
+					dismissSelectors := []string{
+						"button[aria-label='Got it']",
+						"button[aria-label='Dismiss']",
+						"button.artdeco-modal__dismiss",
+					}
+					
+					for _, sel := range dismissSelectors {
+						if exists, _ := c.browser.ElementExists(ctx, sel); exists {
+							c.logger.Info("Found dismissal button, clicking it to proceed", zap.String("selector", sel))
+							if err := c.browser.HumanClick(ctx, sel); err != nil {
+								c.logger.Warn("Failed to click dismissal button", zap.Error(err))
+							}
+							c.browser.RandomSleep(ctx, 0.5, 1.0)
+							break
+						}
+					}
+
+					// Retry clicking Connect to open the modal again (without adding note this time)
+					c.logger.Info("Retrying connection without note...")
+					if err := c.browser.HumanClick(ctx, c.config.Selectors.ProfileConnectBtn); err != nil {
+						c.logger.Warn("Failed to click connect button on retry", zap.Error(err))
+					}
+					c.browser.RandomSleep(ctx, 2.0, 3.0)
+				} else {
+					// Personalize note with name
+					personalizedNote := strings.ReplaceAll(params.Note, "{{Name}}", params.Name)
+					
+					// Enforce character limit (300 chars)
+					if len(personalizedNote) > 300 {
+						c.logger.Warn("Note exceeds 300 characters, truncating", zap.Int("length", len(personalizedNote)))
+						personalizedNote = personalizedNote[:297] + "..."
+					}
+
+					// Type note with human-like behavior
+					if err := c.browser.HumanType(ctx, textareaSelector, personalizedNote); err != nil {
+						c.logger.Warn("Failed to type note", zap.Error(err))
+					}
+					
+					// Small delay before sending
+					c.browser.RandomSleep(ctx, 1.0, 2.0)
+				}
 			}
 		} else {
 			c.logger.Info("Add a note button not found, sending without note")
@@ -263,17 +294,22 @@ func (c *ConnectWorkflow) SendConnectionRequest(ctx context.Context, params *cor
 	}
 
 	// Wait a moment for the request to process
-	time.Sleep(2 * time.Second)
+	c.browser.RandomSleep(ctx, 2.0, 4.0)
 
 	// Record in database
-	profile := &core.Profile{
-		LinkedInURL: params.ProfileURL,
-		Status:      "Connected",
-	}
-
-	if err := c.repository.CreateProfile(ctx, profile); err != nil {
-		c.logger.Warn("Failed to save profile to database", zap.Error(err))
-		// Don't fail the entire operation
+	existing, err := c.repository.GetProfileByURL(ctx, params.ProfileURL)
+	if err == nil && existing != nil {
+		if err := c.repository.UpdateProfileStatus(ctx, params.ProfileURL, core.ProfileStatusRequestSent); err != nil {
+			c.logger.Warn("Failed to update profile status", zap.Error(err))
+		}
+	} else {
+		profile := &core.Profile{
+			LinkedInURL: params.ProfileURL,
+			Status:      core.ProfileStatusRequestSent,
+		}
+		if err := c.repository.CreateProfile(ctx, profile); err != nil {
+			c.logger.Warn("Failed to save profile to database", zap.Error(err))
+		}
 	}
 
 	// Record in history
@@ -337,7 +373,9 @@ func (c *ConnectWorkflow) ShouldSkipProfile(ctx context.Context, profileURL stri
 
 	if existingProfile != nil {
 		// Already processed
-		if existingProfile.Status == "Connected" || existingProfile.Status == "Ignored" {
+		if existingProfile.Status == core.ProfileStatusConnected || 
+		   existingProfile.Status == core.ProfileStatusIgnored || 
+		   existingProfile.Status == core.ProfileStatusRequestSent {
 			c.logger.Info("Profile already processed", 
 				zap.String("url", profileURL),
 				zap.String("status", existingProfile.Status),

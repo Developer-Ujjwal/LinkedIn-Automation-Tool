@@ -52,6 +52,9 @@ type BrowserPort interface {
 	// LoadCookies loads browser cookies from a file
 	LoadCookies(ctx context.Context, path string) error
 	
+	// RandomSleep sleeps for a randomized duration
+	RandomSleep(ctx context.Context, minSeconds, maxSeconds float64)
+
 	// Close closes the browser instance
 	Close(ctx context.Context) error
 }
@@ -64,6 +67,11 @@ type RepositoryPort interface {
 	UpdateProfileStatus(ctx context.Context, url string, status string) error
 	GetProfilesByStatus(ctx context.Context, status string) ([]*Profile, error)
 	
+	// Messaging operations
+	GetPendingFollowups(ctx context.Context, limit int) ([]*Profile, error)
+	MarkAsConnected(ctx context.Context, linkedinURL string) error
+	LogMessageSent(ctx context.Context, profileID uint, content string) error
+
 	// History operations
 	CreateHistory(ctx context.Context, history *History) error
 	GetTodayActionCount(ctx context.Context, actionType string) (int64, error)

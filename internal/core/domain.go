@@ -4,20 +4,29 @@ import "time"
 
 // Profile Status Constants
 const (
-	ProfileStatusDiscovered = "Discovered"
-	ProfileStatusScanned    = "Scanned"
-	ProfileStatusConnected  = "Connected"
-	ProfileStatusIgnored    = "Ignored"
-	ProfileStatusFailed     = "Failed"
+	ProfileStatusDiscovered  = "Discovered"
+	ProfileStatusScanned     = "Scanned"
+	ProfileStatusRequestSent = "RequestSent"
+	ProfileStatusConnected   = "Connected"
+	ProfileStatusMessageSent = "MessageSent"
+	ProfileStatusIgnored     = "Ignored"
+	ProfileStatusFailed      = "Failed"
 )
 
 // Profile represents a LinkedIn profile in the database
 type Profile struct {
-	ID         uint      `gorm:"primaryKey" json:"id"`
-	LinkedInURL string   `gorm:"uniqueIndex;not null" json:"linkedin_url"`
-	Status     string    `gorm:"index;not null" json:"status"` // Scanned, Connected, Ignored
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                uint       `gorm:"primaryKey" json:"id"`
+	LinkedInURL       string     `gorm:"uniqueIndex;not null" json:"linkedin_url"`
+	Status            string     `gorm:"index;not null" json:"status"` // Scanned, Connected, Ignored
+	ConnectedAt       *time.Time `json:"connected_at"`
+	LastMessageSentAt *time.Time `json:"last_message_sent_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+// MessageTemplate represents a message template
+type MessageTemplate struct {
+	Body string `json:"body"`
 }
 
 // History represents an action log entry
@@ -121,6 +130,11 @@ type Config struct {
 	Connection struct {
 		NoteTemplate string `mapstructure:"note_template"`
 	} `mapstructure:"connection"`
+
+	Messaging struct {
+		FollowUpTemplate string `mapstructure:"follow_up_template"`
+		BatchLimit       int    `mapstructure:"batch_limit"`
+	} `mapstructure:"messaging"`
 
 	Session struct {
 		CookiesPath string `mapstructure:"cookies_path"`
