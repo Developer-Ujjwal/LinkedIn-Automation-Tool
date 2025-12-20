@@ -5,8 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/spf13/viper"
 	"linkedin-automation/internal/core"
+
+	"github.com/spf13/viper"
 )
 
 // Load loads configuration from config.yaml and environment variables
@@ -82,6 +83,7 @@ func setDefaults() {
 	viper.SetDefault("stealth.viewport_width_max", 1920)
 	viper.SetDefault("stealth.viewport_height_min", 1080)
 	viper.SetDefault("stealth.viewport_height_max", 1080)
+	viper.SetDefault("stealth.debug_stealth", true)
 
 	// Limits defaults
 	viper.SetDefault("limits.max_actions_per_day", 50)
@@ -105,8 +107,10 @@ func setDefaults() {
 	viper.SetDefault("selectors.login_email_input", "#username")
 	viper.SetDefault("selectors.login_password_input", "#password")
 	viper.SetDefault("selectors.login_submit_button", "button[type='submit']")
+	viper.SetDefault("selectors.feed_container", "#scaffold-feed-main") // Selector for the main feed container
 	viper.SetDefault("selectors.search_input", "input[placeholder*='Search']")
-	viper.SetDefault("selectors.search_results", ".reusable-search__result-container")
+	// Updated selector to be more generic as class names change
+	viper.SetDefault("selectors.search_results", "li.reusable-search__result-container, .search-results-container, .entity-result")
 	viper.SetDefault("selectors.profile_connect_button", "button[aria-label*='Connect']")
 	viper.SetDefault("selectors.connect_note_textarea", "textarea[name='message']")
 	viper.SetDefault("selectors.connect_send_button", "button[aria-label*='Send']")

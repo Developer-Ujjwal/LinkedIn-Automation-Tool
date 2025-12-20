@@ -33,9 +33,15 @@ type BrowserPort interface {
 	
 	// ElementExists checks if an element exists on the page
 	ElementExists(ctx context.Context, selector string) (bool, error)
+
+	// IsElementVisible checks if an element is visible on the page
+	IsElementVisible(ctx context.Context, selector string) (bool, error)
 	
 	// GetCurrentURL returns the current page URL
 	GetCurrentURL(ctx context.Context) (string, error)
+	
+	// GetPageHTML returns the full HTML content of the current page
+	GetPageHTML(ctx context.Context) (string, error)
 	
 	// SaveCookies saves browser cookies to a file
 	SaveCookies(ctx context.Context, path string) error

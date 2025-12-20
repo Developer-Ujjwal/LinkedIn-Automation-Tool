@@ -59,6 +59,7 @@ type StealthConfig struct {
 	ViewportWidthMax int     `mapstructure:"viewport_width_max"`  // Maximum viewport width
 	ViewportHeightMin int    `mapstructure:"viewport_height_min"` // Minimum viewport height
 	ViewportHeightMax int    `mapstructure:"viewport_height_max"` // Maximum viewport height
+	DebugStealth      bool   `mapstructure:"debug_stealth"`       // Enable stealth debugging (slows down actions)
 }
 
 // LimitsConfig holds rate limiting and working hours configuration
@@ -81,6 +82,7 @@ type SelectorsConfig struct {
 	ConnectNoteTextarea string `mapstructure:"connect_note_textarea"`
 	ConnectSendButton  string `mapstructure:"connect_send_button"`
 	TwoFactorChallenge string `mapstructure:"two_factor_challenge"`
+	FeedContainer      string `mapstructure:"feed_container"`
 }
 
 // Config represents the application configuration

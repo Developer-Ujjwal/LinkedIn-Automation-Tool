@@ -8,13 +8,16 @@ import (
 	"os"
 	"time"
 
+	"github.com/go-rod/rod/lib/input"
+
+	"linkedin-automation/internal/core"
+	"linkedin-automation/internal/stealth"
+
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	rodstealth "github.com/go-rod/stealth"
 	"go.uber.org/zap"
-	"linkedin-automation/internal/core"
-	"linkedin-automation/internal/stealth"
 )
 
 // Instance wraps Rod browser with stealth features
@@ -80,11 +83,16 @@ func (b *Instance) Initialize(ctx context.Context) error {
 	b.page.MustSetViewport(width, height, 0, false)
 
 	// Inject script to hide webdriver property
-	b.page.MustEval(`
-		Object.defineProperty(navigator, 'webdriver', {
-			get: () => undefined
-		});
-	`)
+	_, err = b.page.Eval(`() => {
+		try {
+			Object.defineProperty(navigator, 'webdriver', {
+				get: () => undefined
+			});
+		} catch (e) {}
+	}`)
+	if err != nil {
+		b.logger.Debug("Failed to manually hide webdriver property (likely handled by stealth)", zap.Error(err))
+	}
 
 	// Randomize User-Agent (optional, Rod handles this)
 	b.logger.Info("Browser initialized",
@@ -109,7 +117,9 @@ func (b *Instance) Navigate(ctx context.Context, url string) error {
 	}
 
 	// Wait for page load with random delay
-	b.page.MustWaitLoad()
+	if err := b.page.WaitLoad(); err != nil {
+		return fmt.Errorf("failed to wait for page load: %w", err)
+	}
 	b.stealth.RandomSleep(ctx, 1.0, 2.0)
 
 	return nil
@@ -121,10 +131,15 @@ func (b *Instance) HumanType(ctx context.Context, selector string, text string) 
 		return fmt.Errorf("browser not initialized")
 	}
 
-	// Wait for element
-	elem, err := b.page.Timeout(10 * time.Second).Element(selector)
-	if err != nil {
+	// Wait for element to appear (with timeout)
+	if _, err := b.page.Timeout(10 * time.Second).Element(selector); err != nil {
 		return fmt.Errorf("element not found: %s: %w", selector, err)
+	}
+
+	// Get element for interaction (without timeout)
+	elem, err := b.page.Element(selector)
+	if err != nil {
+		return fmt.Errorf("failed to get element: %w", err)
 	}
 
 	// Click to focus
@@ -149,11 +164,15 @@ func (b *Instance) HumanType(ctx context.Context, selector string, text string) 
 		switch action.Type {
 		case stealth.ActionTypeKey:
 			if action.Key == "\b" {
-				// Backspace
-				elem.MustInput("\b")
+				// Backspace - Use Keyboard.Press for special keys to ensure correct behavior
+				if err := b.page.Keyboard.Press(input.Backspace); err != nil {
+					return fmt.Errorf("failed to press backspace: %w", err)
+				}
 			} else {
 				// Type character
-				elem.MustInput(action.Key)
+				if err := elem.Input(action.Key); err != nil {
+					return fmt.Errorf("failed to input key: %w", err)
+				}
 			}
 		case stealth.ActionTypeDelay:
 			// Delay
@@ -161,10 +180,16 @@ func (b *Instance) HumanType(ctx context.Context, selector string, text string) 
 
 		// Apply delay
 		if action.Delay > 0 {
+			// If debug mode is on, slow down the delay to make it observable
+			delay := action.Delay
+			if b.config.Stealth.DebugStealth {
+				delay *= 5
+				b.logger.Info("Stealth Debug: Typing delay", zap.Duration("delay", delay))
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(action.Delay):
+			case <-time.After(delay):
 			}
 		}
 	}
@@ -178,9 +203,15 @@ func (b *Instance) HumanClick(ctx context.Context, selector string) error {
 		return fmt.Errorf("browser not initialized")
 	}
 
-	elem, err := b.page.Timeout(10 * time.Second).Element(selector)
-	if err != nil {
+	// Wait for element to appear (with timeout)
+	if _, err := b.page.Timeout(10 * time.Second).Element(selector); err != nil {
 		return fmt.Errorf("element not found: %s: %w", selector, err)
+	}
+
+	// Get element for interaction (without timeout)
+	elem, err := b.page.Element(selector)
+	if err != nil {
+		return fmt.Errorf("failed to get element: %w", err)
 	}
 
 	// Get element position using JavaScript
@@ -219,66 +250,55 @@ func (b *Instance) HumanClick(ctx context.Context, selector string) error {
 	// Get mouse path from stealth engine
 	points := b.stealth.GetMousePath(startX, startY, centerX, centerY)
 
-	// Execute mouse movement using JavaScript
-	jsCode := fmt.Sprintf(`
-		(function() {
-			const points = %s;
-			let currentIndex = 0;
-			
-			function moveMouse() {
-				if (currentIndex >= points.length) {
-					// Click at final position
-					const event = new MouseEvent('click', {
-						view: window,
-						bubbles: true,
-						cancelable: true
-					});
-					document.elementFromPoint(points[points.length-1].X, points[points.length-1].Y).dispatchEvent(event);
-					return;
-				}
-				
-				const point = points[currentIndex];
-				const event = new MouseEvent('mousemove', {
-					view: window,
-					bubbles: true,
-					cancelable: true,
-					clientX: point.X,
-					clientY: point.Y
-				});
-				document.dispatchEvent(event);
-				currentIndex++;
-				setTimeout(moveMouse, 10);
-			}
-			
-			moveMouse();
-		})();
-	`, b.pointsToJSON(points))
+	// In debug mode, log the points and slow down the movement
+	mouseMoveDelay := 10 // Default delay
+	if b.config.Stealth.DebugStealth {
+		mouseMoveDelay = 50 // Slower delay for observation
+		b.logger.Info("Stealth Debug: Mouse path", zap.Int("points", len(points)))
+	}
 
-	// Execute mouse movement
-	b.page.MustEval(jsCode)
+	// Execute mouse movement using CDP (Chrome DevTools Protocol)
+	// This generates 'isTrusted: true' events which are indistinguishable from real hardware input,
+	// unlike JavaScript-generated events which are easily detected.
+	for _, p := range points {
+		// Move mouse to the next point in the Bezier curve
+		// We use CDP directly via proto.InputDispatchMouseEvent
+		err := proto.InputDispatchMouseEvent{
+			Type:       proto.InputDispatchMouseEventTypeMouseMoved,
+			X:          p.X,
+			Y:          p.Y,
+		}.Call(b.page)
+		if err != nil {
+			b.logger.Debug("Failed to move mouse", zap.Error(err))
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		// Add micro-delays between movements to simulate human speed
+		delay := time.Duration(mouseMoveDelay) * time.Millisecond
+		if !b.config.Stealth.DebugStealth {
+			// Add random jitter to the delay (5-15ms)
+			jitter := rand.Intn(11) + 5
+			delay = time.Duration(jitter) * time.Millisecond
+		}
+		time.Sleep(delay)
+	}
 
 	// Small delay before actual click
 	b.stealth.RandomSleep(ctx, 0.1, 0.2)
 
 	// Perform click
-	elem.MustClick()
+	if err := elem.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		return fmt.Errorf("failed to click element: %w", err)
+	}
 
 	return nil
 }
 
-// pointsToJSON converts Point slice to JSON string
-func (b *Instance) pointsToJSON(points []stealth.Point) string {
-	type PointJSON struct {
-		X float64 `json:"X"`
-		Y float64 `json:"Y"`
-	}
-	jsonPoints := make([]PointJSON, len(points))
-	for i, p := range points {
-		jsonPoints[i] = PointJSON{X: p.X, Y: p.Y}
-	}
-	data, _ := json.Marshal(jsonPoints)
-	return string(data)
-}
 
 // HumanScroll scrolls the page with human-like acceleration/deceleration
 func (b *Instance) HumanScroll(ctx context.Context, direction string, distance int) error {
@@ -301,7 +321,25 @@ func (b *Instance) HumanScroll(ctx context.Context, direction string, distance i
 		}
 
 		if action.Distance != 0 {
-			b.page.MustEval(fmt.Sprintf("window.scrollBy(0, %d);", action.Distance))
+			// Use CDP to dispatch a mouse wheel event, which is stealthier than JS scrollBy
+			// and works even if the page overrides window.scrollBy
+			err := proto.InputDispatchMouseEvent{
+				Type:   proto.InputDispatchMouseEventTypeMouseWheel,
+				X:      100, // Arbitrary point inside viewport
+				Y:      100,
+				DeltaX: 0,
+				DeltaY: float64(action.Distance),
+			}.Call(b.page)
+
+			if err != nil {
+				b.logger.Debug("Failed to execute CDP scroll, falling back to keyboard", zap.Error(err))
+				// Fallback to keyboard scrolling
+				if action.Distance > 0 {
+					_ = b.page.Keyboard.Press(input.ArrowDown)
+				} else {
+					_ = b.page.Keyboard.Press(input.ArrowUp)
+				}
+			}
 		}
 
 		if action.Delay > 0 {
@@ -382,13 +420,63 @@ func (b *Instance) ElementExists(ctx context.Context, selector string) (bool, er
 	return elem != nil, nil
 }
 
+// IsElementVisible checks if an element is visible on the page
+func (b *Instance) IsElementVisible(ctx context.Context, selector string) (bool, error) {
+	if b.page == nil {
+		return false, fmt.Errorf("browser not initialized")
+	}
+
+	// Use a short timeout to check for visibility
+	elem, err := b.page.Timeout(2 * time.Second).Element(selector)
+	if err != nil {
+		// Element not found, so it's not visible
+		return false, nil
+	}
+
+	visible, err := elem.Visible()
+	if err != nil {
+		return false, fmt.Errorf("failed to check visibility: %w", err)
+	}
+
+	if !visible {
+		return false, nil
+	}
+
+	// Check dimensions to avoid 1x1 tracking pixels or hidden iframes
+	// The security challenge iframe should be substantial
+	validSize, err := elem.Eval(`() => {
+		const rect = this.getBoundingClientRect();
+		return rect.width > 50 && rect.height > 50;
+	}`)
+	if err != nil {
+		// If eval fails, assume it's not a valid visible element for our purposes
+		return false, nil
+	}
+
+	return validSize.Value.Bool(), nil
+}
+
 // GetCurrentURL returns the current page URL
 func (b *Instance) GetCurrentURL(ctx context.Context) (string, error) {
 	if b.page == nil {
 		return "", fmt.Errorf("browser not initialized")
 	}
 
-	return b.page.MustInfo().URL, nil
+	info, err := b.page.Info()
+	if err != nil {
+		return "", fmt.Errorf("failed to get page info: %w", err)
+	}
+
+	return info.URL, nil
+}
+
+// GetPageHTML returns the full HTML content of the current page
+func (b *Instance) GetPageHTML(ctx context.Context) (string, error) {
+	if b.page == nil {
+		return "", fmt.Errorf("browser not initialized")
+	}
+
+	return b.page.HTML()
 }
 
 // SaveCookies saves browser cookies to a file
