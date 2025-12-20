@@ -13,6 +13,10 @@ A CLI-based automation tool built in Go using `go-rod/rod` that demonstrates:
 - Clean architecture with dependency injection
 - **Full Workflow**: Search -> Connect -> Detect Acceptance -> Send Follow-up Message
 
+## Demo
+
+[Watch the Demo Video](https://drive.google.com/file/d/1pOQ89wFLio7dEcPSnbfTML4jCaBKb2y-/view?usp=sharing)
+
 ## Architecture
 
 ```
