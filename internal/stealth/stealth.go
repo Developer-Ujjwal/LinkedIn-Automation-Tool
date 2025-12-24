@@ -20,9 +20,15 @@ type Stealth struct {
 func NewStealth(config *core.StealthConfig) *Stealth {
 	return &Stealth{
 		mouse: NewMouse(&MouseConfig{
-			SpeedMin:       config.MouseSpeedMin,
-			SpeedMax:       config.MouseSpeedMax,
-			OvershootChance: config.OvershootChance,
+			SpeedMin:              config.MouseSpeedMin,
+			SpeedMax:              config.MouseSpeedMax,
+			OvershootChance:       config.OvershootChance,
+			OvershootDistMin:      config.OvershootDistMin,
+			OvershootDistMax:      config.OvershootDistMax,
+			ControlPointOffsetMin: config.ControlPointOffsetMin,
+			ControlPointOffsetMax: config.ControlPointOffsetMax,
+			ControlPointSpreadMin: config.ControlPointSpreadMin,
+			ControlPointSpreadMax: config.ControlPointSpreadMax,
 		}),
 		keyboard: NewKeyboard(),
 		jitter:   NewJitter(),

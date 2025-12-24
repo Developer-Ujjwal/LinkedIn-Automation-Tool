@@ -17,6 +17,12 @@ stealth:
   mouse_speed_min: 0.5   # Minimum mouse speed multiplier
   mouse_speed_max: 1.5   # Maximum mouse speed multiplier
   overshoot_chance: 0.3  # Chance of mouse overshooting target (0.0-1.0)
+  overshoot_dist_min: 0.1 # Min overshoot distance factor
+  overshoot_dist_max: 0.3 # Max overshoot distance factor
+  control_point_offset_min: 0.2 # Min control point offset
+  control_point_offset_max: 0.5 # Max control point offset
+  control_point_spread_min: 0.3 # Min control point spread
+  control_point_spread_max: 0.7 # Max control point spread
   
   # Scrolling behavior
   scroll_chunk_min: 50   # Minimum scroll chunk size in pixels
@@ -53,8 +59,38 @@ selectors:
   # Profile/Connection selectors
   # Updated based on debug HTML: Target primary button, exclude sticky header
   profile_connect_button: "button.artdeco-button--primary[aria-label*='Invite'][aria-label*='connect']:not(.pvs-sticky-header-profile-actions__action)"
-  profile_more_button: "button[aria-label*='More actions']:not(.pvs-sticky-header-profile-actions__action)"
-  profile_more_connect_option: "div[role='button'][aria-label*='Connect'], div[role='button'][aria-label*='Invite'][aria-label*='connect']"
+  
+  profile_connect_button_fallbacks:
+    - ".scaffold-layout__main button.artdeco-button--primary[aria-label*='Invite'][aria-label*='connect']:not(.pvs-sticky-header-profile-actions__action)"
+    - ".scaffold-layout__main button.artdeco-button--primary[aria-label*='Connect']:not(.pvs-sticky-header-profile-actions__action)"
+    - ".scaffold-layout__main button[aria-label*='Invite'][aria-label*='connect']:not(.pvs-sticky-header-profile-actions__action)"
+    - ".scaffold-layout__main button[aria-label*='Connect']:not(.pvs-sticky-header-profile-actions__action)"
+    - ".scaffold-layout__main button:contains('Connect')"
+
+  # STRICTLY scoped to the main content area to avoid sticky header
+  # HTML: <div class="scaffold-layout__content ..."> ... <button aria-label="More actions" ...>
+  profile_more_button: ".scaffold-layout__content button[aria-label='More actions']"
+  
+  profile_more_button_fallbacks:
+    # Fallback: Scoped to main content with ID pattern
+    - ".scaffold-layout__content button[id*='profile-overflow-action']"
+    # Fallback: Secondary button with "More" text in main content
+    - ".scaffold-layout__content button[aria-label='More actions'].artdeco-button--secondary"
+    # Fallback: Generic trigger in main content
+    - ".scaffold-layout__content .artdeco-dropdown__trigger"
+
+  # Connect option inside the dropdown
+  # HTML: <div aria-label="Invite ... to connect" ... class="artdeco-dropdown__item ...">
+  profile_more_connect_option: ".artdeco-dropdown__content .artdeco-dropdown__item[aria-label*='Invite'][aria-label*='connect']"
+  
+  profile_connect_option_fallbacks:
+    # Text based match inside the dropdown item
+    - ".artdeco-dropdown__content .artdeco-dropdown__item span:contains('Connect')"
+    # Generic connect option in dropdown
+    - ".artdeco-dropdown__content div[aria-label*='Connect']"
+    # Icon based match
+    - ".artdeco-dropdown__content li-icon[type='connect']"
+  
   connect_modal_add_note_button: "button[aria-label*='Add a note']"
   connect_note_textarea: "textarea[name='message']"
   connect_send_button: "button[aria-label*='Send']"

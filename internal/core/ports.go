@@ -25,6 +25,12 @@ type BrowserPort interface {
 	// WaitForElement waits for an element to appear with timeout
 	WaitForElement(ctx context.Context, selector string, timeout time.Duration) error
 	
+	// JSClick clicks an element using JavaScript (fallback)
+	JSClick(ctx context.Context, selector string) error
+
+	// ExecuteScript executes JavaScript on the page
+	ExecuteScript(ctx context.Context, script string) (interface{}, error)
+
 	// GetText extracts text content from an element
 	GetText(ctx context.Context, selector string) (string, error)
 	

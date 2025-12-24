@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"linkedin-automation/internal/browser"
 	"linkedin-automation/internal/core"
 
 	"go.uber.org/zap"
@@ -47,9 +48,19 @@ func (m *MessagingWorkflow) ScanNewConnections(ctx context.Context) error {
 
 	// Wait for the list to load
 	// The list container usually has a class like 'scaffold-finite-scroll__content' or specific connection cards
-	listSelector := ".mn-connection-card"
+	// Updated based on debug dump: using data-view-name="connections-list"
+	listSelector := "div[data-view-name='connections-list']"
 	if err := m.browser.WaitForElement(ctx, listSelector, 10*time.Second); err != nil {
-		m.logger.Warn("Could not find connection cards (maybe no connections yet?)", zap.Error(err))
+		m.logger.Warn("Could not find connection list container", zap.Error(err))
+		
+		// Dump HTML for debugging
+		if html, errHtml := m.browser.GetPageHTML(ctx); errHtml == nil {
+			dumpPath := fmt.Sprintf("data/debug_scan_fail_%d.html", time.Now().Unix())
+			if errWrite := os.WriteFile(dumpPath, []byte(html), 0644); errWrite == nil {
+				m.logger.Info("Dumped connections page HTML for debugging", zap.String("path", dumpPath))
+			}
+		}
+
 		return nil
 	}
 
@@ -62,23 +73,40 @@ func (m *MessagingWorkflow) ScanNewConnections(ctx context.Context) error {
 
 	// Extract all profile URLs from the visible list
 	// Selector targets the main link in the connection card
-	linkSelector := ".mn-connection-card__link"
+	// Updated based on debug dump: using data-view-name="connections-profile"
+	linkSelector := "a[data-view-name='connections-profile']"
 	urls, err := m.browser.GetAttributes(ctx, linkSelector, "href")
 	if err != nil {
 		return fmt.Errorf("failed to extract connection URLs: %w", err)
 	}
 
-	m.logger.Info("Found connections on page", zap.Int("count", len(urls)))
+	if len(urls) == 0 {
+		m.logger.Warn("No connection URLs found despite finding list container")
+		// Dump HTML for debugging
+		if html, errHtml := m.browser.GetPageHTML(ctx); errHtml == nil {
+			dumpPath := fmt.Sprintf("data/debug_connections_empty_%d.html", time.Now().Unix())
+			if errWrite := os.WriteFile(dumpPath, []byte(html), 0644); errWrite == nil {
+				m.logger.Info("Dumped connections page HTML for debugging", zap.String("path", dumpPath))
+			}
+		}
+	}
+
+	// Deduplicate URLs
+	uniqueURLs := make(map[string]bool)
+	var cleanURLs []string
+	for _, rawURL := range urls {
+		clean := m.cleanProfileURL(rawURL)
+		if clean != "" && !uniqueURLs[clean] {
+			uniqueURLs[clean] = true
+			cleanURLs = append(cleanURLs, clean)
+		}
+	}
+
+	m.logger.Info("Found connections on page", zap.Int("count", len(cleanURLs)))
 
 	newConnectionsCount := 0
 	
-	for _, rawURL := range urls {
-		// Clean the URL
-		profileURL := m.cleanProfileURL(rawURL)
-		if profileURL == "" {
-			continue
-		}
-
+	for _, profileURL := range cleanURLs {
 		// Check if we know this profile
 		profile, err := m.repository.GetProfileByURL(ctx, profileURL)
 		if err != nil {
@@ -108,20 +136,19 @@ func (m *MessagingWorkflow) ScanNewConnections(ctx context.Context) error {
 			}
 		} else {
 			// Profile not in our DB. 
-			// Option: Add them as 'Connected' so we can potentially message them later?
-			// For now, we'll just log it.
-			m.logger.Debug("Found connection not in DB", zap.String("url", profileURL))
+			// Add them as 'Connected' so we can message them later
+			m.logger.Info("Found new connection not in DB, adding to database", zap.String("url", profileURL))
 			
-			// TODO: Uncomment to auto-add unknown connections
-			/*
 			newProfile := &core.Profile{
 				LinkedInURL: profileURL,
 				Status:      core.ProfileStatusConnected,
 			}
 			if err := m.repository.CreateProfile(ctx, newProfile); err == nil {
 				newConnectionsCount++
+				m.logger.Info("Successfully added new connection", zap.String("url", profileURL))
+			} else {
+				m.logger.Error("Failed to add new connection", zap.String("url", profileURL), zap.Error(err))
 			}
-			*/
 		}
 	}
 
@@ -211,9 +238,38 @@ func (m *MessagingWorkflow) SendFollowUpMessages(ctx context.Context) error {
 
 		// 5. Wait for chat overlay/window
 		// The chat input usually has role='textbox' and is contenteditable
-		chatInputSelector := "div.msg-form__contenteditable[role='textbox']"
-		if err := m.browser.WaitForElement(ctx, chatInputSelector, 5*time.Second); err != nil {
-			m.logger.Warn("Chat input not found", zap.Error(err))
+		chatInputSelectors := []string{
+			"div.msg-form__contenteditable[role='textbox']",
+			"div[role='textbox'][aria-label*='Write a message']",
+			"div[role='textbox'][aria-label*='Message']",
+			".msg-form__message-texteditor",
+		}
+		
+		var chatInputSelector string
+		
+		// Wait for the chat window to appear (check primary selector first)
+		// Increased timeout to 10s
+		if err := m.browser.WaitForElement(ctx, chatInputSelectors[0], 10*time.Second); err == nil {
+			chatInputSelector = chatInputSelectors[0]
+		} else {
+			// If primary failed, check others quickly
+			for _, sel := range chatInputSelectors[1:] {
+				if exists, _ := m.browser.ElementExists(ctx, sel); exists {
+					chatInputSelector = sel
+					break
+				}
+			}
+		}
+
+		if chatInputSelector == "" {
+			m.logger.Warn("Chat input not found")
+			// Dump HTML for debugging
+			if html, errHtml := m.browser.GetPageHTML(ctx); errHtml == nil {
+				dumpPath := fmt.Sprintf("data/debug_chat_input_fail_%d.html", time.Now().Unix())
+				if errWrite := os.WriteFile(dumpPath, []byte(html), 0644); errWrite == nil {
+					m.logger.Info("Dumped page HTML for debugging", zap.String("path", dumpPath))
+				}
+			}
 			continue
 		}
 
@@ -292,33 +348,98 @@ func (m *MessagingWorkflow) extractFirstName(ctx context.Context) string {
 
 // clickMessageButton attempts to find and click the message button
 func (m *MessagingWorkflow) clickMessageButton(ctx context.Context) error {
+	// 0. Check if we are already on the messaging page
+	currentURL, err := m.browser.GetCurrentURL(ctx)
+	if err == nil && strings.Contains(currentURL, "/messaging/") {
+		m.logger.Info("Already on messaging page, skipping click")
+		return nil
+	}
+
 	// 1. Try primary/secondary Message button
 	// "Message" button is often a secondary button if "Connect" is primary, 
 	// or primary if already connected.
+	// We exclude .pvs-sticky-header-profile-actions__action and .pv-profile-sticky-header-v2__actions-container *
+	// because they are often present but hidden (sticky header), causing false positives.
 	selectors := []string{
-		"button.artdeco-button--primary[aria-label*='Message']",
-		"button.artdeco-button--secondary[aria-label*='Message']",
-		"button[aria-label*='Message']",
+		"button.artdeco-button--primary[aria-label*='Message']:not(.pvs-sticky-header-profile-actions__action):not(.pv-profile-sticky-header-v2__actions-container *)",
+		"button.artdeco-button--secondary[aria-label*='Message']:not(.pvs-sticky-header-profile-actions__action):not(.pv-profile-sticky-header-v2__actions-container *)",
+		"button[aria-label*='Message']:not(.pvs-sticky-header-profile-actions__action):not(.pv-profile-sticky-header-v2__actions-container *)",
+		"a[aria-label*='Message']:not(.pvs-sticky-header-profile-actions__action):not(.pv-profile-sticky-header-v2__actions-container *)",
+		// Fallback for text content
+		"button:contains('Message'):not(.pvs-sticky-header-profile-actions__action):not(.pv-profile-sticky-header-v2__actions-container *)",
+		"a:contains('Message'):not(.pvs-sticky-header-profile-actions__action):not(.pv-profile-sticky-header-v2__actions-container *)",
 	}
 
 	for _, sel := range selectors {
-		if exists, _ := m.browser.ElementExists(ctx, sel); exists {
-			return m.browser.HumanClick(ctx, sel)
+		// Ensure we don't click the nav bar "Messaging" link
+		if strings.Contains(sel, ":contains") {
+			// For :contains, we need to be careful not to click the nav bar
+			// The nav bar link usually has class global-nav__primary-link
+			sel = sel + ":not(.global-nav__primary-link)"
+		}
+
+		// Try to find visible element using type assertion to access underlying rod page
+		if instance, ok := m.browser.(*browser.Instance); ok {
+			page := instance.GetPage()
+			if elements, err := page.Elements(sel); err == nil {
+				for _, el := range elements {
+					if visible, _ := el.Visible(); visible {
+						m.logger.Info("Found visible Message button", zap.String("selector", sel))
+						return instance.HumanClickElement(ctx, el)
+					}
+				}
+			}
+		} else {
+			// Fallback to interface methods
+			if exists, _ := m.browser.ElementExists(ctx, sel); exists {
+				// Check visibility
+				if visible, _ := m.browser.IsElementVisible(ctx, sel); visible {
+					m.logger.Info("Found Message button", zap.String("selector", sel))
+					return m.browser.HumanClick(ctx, sel)
+				}
+			}
 		}
 	}
 
 	// 2. Check "More" menu
-	moreBtn := "button[aria-label*='More actions']"
-	if exists, _ := m.browser.ElementExists(ctx, moreBtn); exists {
-		if err := m.browser.HumanClick(ctx, moreBtn); err != nil {
+	// Use configured selectors + fallbacks
+	moreSelectors := []string{
+		m.config.Selectors.ProfileMoreButton,
+		"button[aria-label*='More actions']:not(.pv-profile-sticky-header-v2__actions-container *)",
+		"button[aria-label*='More']:not(.pv-profile-sticky-header-v2__actions-container *)",
+		".pv-top-card-v2-ctas button[aria-label*='More']",
+	}
+
+	var foundMoreSelector string
+	for _, selector := range moreSelectors {
+		if selector == "" {
+			continue
+		}
+		if visible, _ := m.browser.IsElementVisible(ctx, selector); visible {
+			foundMoreSelector = selector
+			break
+		}
+	}
+
+	if foundMoreSelector != "" {
+		m.logger.Info("Found 'More' button", zap.String("selector", foundMoreSelector))
+		if err := m.browser.HumanClick(ctx, foundMoreSelector); err != nil {
 			return err
 		}
 		m.browser.RandomSleep(ctx, 1.0, 2.0)
 
 		// Look for Message in dropdown
-		msgOption := "div[role='button'][aria-label*='Message']"
-		if err := m.browser.WaitForElement(ctx, msgOption, 2*time.Second); err == nil {
-			return m.browser.HumanClick(ctx, msgOption)
+		msgOptions := []string{
+			"div[role='button'][aria-label*='Message']",
+			"div[role='button']:contains('Message')",
+			".artdeco-dropdown__content div:contains('Message')",
+		}
+
+		for _, opt := range msgOptions {
+			if err := m.browser.WaitForElement(ctx, opt, 2*time.Second); err == nil {
+				m.logger.Info("Found Message option in dropdown", zap.String("selector", opt))
+				return m.browser.HumanClick(ctx, opt)
+			}
 		}
 	}
 

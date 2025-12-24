@@ -15,7 +15,7 @@ A CLI-based automation tool built in Go using `go-rod/rod` that demonstrates:
 
 ## Demo
 
-[Watch the Demo Video](https://drive.google.com/file/d/1pOQ89wFLio7dEcPSnbfTML4jCaBKb2y-/view?usp=sharing)
+[Watch the Demo Video](https://drive.google.com/file/d/11b0I6hQI6Dl5Y-0vevfxVaO2dNV89YX8/view?usp=sharing)
 
 ## Architecture
 

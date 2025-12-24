@@ -69,6 +69,12 @@ type StealthConfig struct {
 	MouseSpeedMin    float64 `mapstructure:"mouse_speed_min"`     // Minimum mouse speed multiplier
 	MouseSpeedMax    float64 `mapstructure:"mouse_speed_max"`     // Maximum mouse speed multiplier
 	OvershootChance  float64 `mapstructure:"overshoot_chance"`    // Chance of mouse overshoot (0.0-1.0)
+	OvershootDistMin float64 `mapstructure:"overshoot_dist_min"`  // Min overshoot distance factor
+	OvershootDistMax float64 `mapstructure:"overshoot_dist_max"`  // Max overshoot distance factor
+	ControlPointOffsetMin float64 `mapstructure:"control_point_offset_min"` // Min control point offset
+	ControlPointOffsetMax float64 `mapstructure:"control_point_offset_max"` // Max control point offset
+	ControlPointSpreadMin float64 `mapstructure:"control_point_spread_min"` // Min control point spread
+	ControlPointSpreadMax float64 `mapstructure:"control_point_spread_max"` // Max control point spread
 	ScrollChunkMin   int     `mapstructure:"scroll_chunk_min"`    // Minimum scroll chunk size
 	ScrollChunkMax   int     `mapstructure:"scroll_chunk_max"`    // Maximum scroll chunk size
 	BaseDelayMin     float64 `mapstructure:"base_delay_min"`      // Minimum base delay in seconds
@@ -97,8 +103,11 @@ type SelectorsConfig struct {
 	SearchInput        string `mapstructure:"search_input"`
 	SearchResults      string `mapstructure:"search_results"`
 	ProfileConnectBtn  string `mapstructure:"profile_connect_button"`
+	ProfileConnectButtonFallbacks []string `mapstructure:"profile_connect_button_fallbacks"`
 	ProfileMoreButton  string `mapstructure:"profile_more_button"`
+	ProfileMoreButtonFallbacks []string `mapstructure:"profile_more_button_fallbacks"`
 	ProfileMoreConnectOption string `mapstructure:"profile_more_connect_option"`
+	ProfileConnectOptionFallbacks []string `mapstructure:"profile_connect_option_fallbacks"`
 	ConnectModalAddNoteButton string `mapstructure:"connect_modal_add_note_button"`
 	ConnectNoteTextarea string `mapstructure:"connect_note_textarea"`
 	ConnectSendButton  string `mapstructure:"connect_send_button"`

@@ -86,8 +86,9 @@ func (c *ConnectWorkflow) SendConnectionRequest(ctx context.Context, params *cor
 		return nil
 	}
 
-	// Scroll down to ensure Connect button is visible
-	if err := c.browser.HumanScroll(ctx, "down", 300); err != nil {
+	// Scroll down slightly to ensure content is loaded, but not too much to hide the top card
+	// Reduced from 300 to 20 to avoid hiding the 'More' button behind the sticky header
+	if err := c.browser.HumanScroll(ctx, "down", 20); err != nil {
 		c.logger.Warn("Failed to scroll", zap.Error(err))
 	}
 
@@ -104,26 +105,8 @@ func (c *ConnectWorkflow) SendConnectionRequest(ctx context.Context, params *cor
 
 	// If configured selector failed, try fallback selectors including the one found by user
 	if !connectBtnFound {
-		// .pv-top-card is the standard class for the top section
-		// .scaffold-layout__main is the main column
-		// We also exclude the sticky header (.pvs-sticky-header...) to avoid clicking moving elements
-		prefix := ".scaffold-layout__main "
-		notSticky := ":not(.pvs-sticky-header-profile-actions__action)"
-		
-		fallbackSelectors := []string{
-			// Most specific: Primary button with "Invite...connect" text, not sticky
-			prefix + "button.artdeco-button--primary[aria-label*='Invite'][aria-label*='connect']" + notSticky,
-			
-			// Primary button with just "Connect", not sticky
-			prefix + "button.artdeco-button--primary[aria-label*='Connect']" + notSticky,
-			
-			// Standard fallbacks
-			prefix + "button[aria-label*='Invite'][aria-label*='connect']" + notSticky,
-			prefix + "button[aria-label*='Connect']" + notSticky,
-			
-			// Last resort: any button containing Connect text
-			prefix + "button:contains('Connect')",
-		}
+		// Use fallback selectors from config
+		fallbackSelectors := c.config.Selectors.ProfileConnectButtonFallbacks
 
 		for _, selector := range fallbackSelectors {
 			if err := c.browser.WaitForElement(ctx, selector, 2*time.Second); err == nil {
@@ -138,30 +121,94 @@ func (c *ConnectWorkflow) SendConnectionRequest(ctx context.Context, params *cor
 	if !connectBtnFound {
 		// If not found, check if it's hidden under "More" actions
 		c.logger.Info("Connect button not found directly, checking 'More' menu...")
-		
-		// Scope "More" button to main layout too
-		moreSelector := c.config.Selectors.ProfileMoreButton
-		if !strings.Contains(moreSelector, ".scaffold-layout__main") {
-			// Try scoped version first
-			scopedMore := ".scaffold-layout__main " + moreSelector
-			if exists, _ := c.browser.ElementExists(ctx, scopedMore); exists {
-				moreSelector = scopedMore
+
+		// Define fallback selectors for "More" button
+		// We strictly scope this to the top card (.pv-top-card) to avoid clicking "More" buttons
+		// in the "People also viewed" section or other parts of the page.
+		moreSelectors := []string{
+			// Use configured fallbacks first
+			c.config.Selectors.ProfileMoreButton,
+		}
+		// Append configured fallbacks
+		moreSelectors = append(moreSelectors, c.config.Selectors.ProfileMoreButtonFallbacks...)
+
+		var foundMoreSelector string
+		for _, selector := range moreSelectors {
+			if selector == "" {
+				continue
+			}
+			// Exclude sticky header if not already excluded
+			if !strings.Contains(selector, ":not(.pvs-sticky-header") {
+				selector = selector + ":not(.pvs-sticky-header-profile-actions__action)"
+			}
+			
+			// Check if it exists and is visible
+			// We use IsElementVisible to ensure we don't try to click something hidden
+			if visible, _ := c.browser.IsElementVisible(ctx, selector); visible {
+				foundMoreSelector = selector
+				break
 			}
 		}
 
-		if existsMore, _ := c.browser.ElementExists(ctx, moreSelector); existsMore {
-			if err := c.browser.HumanClick(ctx, moreSelector); err == nil {
+		if foundMoreSelector != "" {
+			c.logger.Info("Found 'More' button", zap.String("selector", foundMoreSelector))
+			
+			// Try human click first
+			if err := c.browser.HumanClick(ctx, foundMoreSelector); err != nil {
+				c.logger.Warn("Human click failed, trying JS click", zap.Error(err))
+				if err := c.browser.JSClick(ctx, foundMoreSelector); err != nil {
+					c.logger.Error("JS click also failed", zap.Error(err))
+				}
+			}
+			
+			c.browser.RandomSleep(ctx, 1.0, 2.0)
+
+			// Verify if the dropdown content is visible
+			// This confirms the menu actually opened
+			dropdownVisible, _ := c.browser.IsElementVisible(ctx, ".artdeco-dropdown__content")
+			if !dropdownVisible {
+				c.logger.Warn("Dropdown content not visible after clicking 'More', trying JS click...")
+				// Retry with JS click
+				if err := c.browser.JSClick(ctx, foundMoreSelector); err != nil {
+					c.logger.Error("Retry JS click failed", zap.Error(err))
+				}
 				c.browser.RandomSleep(ctx, 1.0, 2.0)
 				
-				// Check for Connect button again in the dropdown
-				targetSelector := c.config.Selectors.ProfileMoreConnectOption
-				if targetSelector != "" {
-					if err := c.browser.WaitForElement(ctx, targetSelector, 3*time.Second); err == nil {
-						// Update selector to use the one we found for the click
-						c.config.Selectors.ProfileConnectBtn = targetSelector
-						connectBtnFound = true
-						c.logger.Info("Found Connect button in 'More' menu", zap.String("selector", targetSelector))
+				// Check again
+				dropdownVisible, _ = c.browser.IsElementVisible(ctx, ".artdeco-dropdown__content")
+				if !dropdownVisible {
+					c.logger.Error("Dropdown still not visible after retry")
+					// Dump HTML here to see why it's not opening
+					if html, errHtml := c.browser.GetPageHTML(ctx); errHtml == nil {
+						dumpPath := fmt.Sprintf("data/debug_more_click_fail_%d.html", time.Now().Unix())
+						if errWrite := os.WriteFile(dumpPath, []byte(html), 0644); errWrite == nil {
+							c.logger.Info("Dumped HTML after failed 'More' click", zap.String("path", dumpPath))
+						}
 					}
+				}
+			}
+
+			// Define fallback selectors for "Connect" option in dropdown
+			// CRITICAL: We must scope this to .artdeco-dropdown__content or similar
+			// to ensure we don't click a "Connect" button elsewhere on the page (like "People also viewed")
+			connectOptionSelectors := []string{
+				c.config.Selectors.ProfileMoreConnectOption,
+			}
+			// Append configured fallbacks
+			connectOptionSelectors = append(connectOptionSelectors, c.config.Selectors.ProfileConnectOptionFallbacks...)
+
+			for _, selector := range connectOptionSelectors {
+				if selector == "" {
+					continue
+				}
+				// Use a short timeout because the menu is already open
+				// We use IsElementVisible here too to be sure
+				if visible, _ := c.browser.IsElementVisible(ctx, selector); visible {
+					// Update selector to use the one we found for the click
+					c.config.Selectors.ProfileConnectBtn = selector
+					connectBtnFound = true
+					c.logger.Info("Found Connect button in 'More' menu", zap.String("selector", selector))
+					break
 				}
 			}
 		}
@@ -403,4 +450,5 @@ func (c *ConnectWorkflow) ShouldSkipProfile(ctx context.Context, profileURL stri
 func (c *ConnectWorkflow) GetRepository() core.RepositoryPort {
 	return c.repository
 }
+
 
